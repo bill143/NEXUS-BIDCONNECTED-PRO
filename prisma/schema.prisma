@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id            String   @id @default(cuid())
+  name          String
+  projectNumber String   @unique
+  owner         String
+  location      String
+  bidDueDate    DateTime
+  estimatedValue Float
+  status        String   @default("active") // active, completed, cancelled
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  bonds    Bond[]
+  reminders Reminder[]
+}
+
+model Bond {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  type            String   // bid_bond, performance_bond, payment_bond
+  status          String   @default("draft") // draft, issued, active, expiring, expired, renewed, released, forfeited
+  bondNumber      String   @unique
+  suretyCompany   String
+  principalName   String
+  obligeeName     String
+  bondAmount      Float
+  premiumAmount   Float
+  premiumRate     Float?
+
+  effectiveDate   DateTime
+  expirationDate  DateTime
+  renewalDate     DateTime?
+
+  underwriter     String?
+  agentName       String?
+  agentContact    String?
+  notes           String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  reminders       Reminder[]
+  statusHistory   BondStatusHistory[]
+}
+
+model BondStatusHistory {
+  id        String   @id @default(cuid())
+  bondId    String
+  bond      Bond     @relation(fields: [bondId], references: [id], onDelete: Cascade)
+
+  fromStatus String
+  toStatus   String
+  changedBy  String   @default("system")
+  reason     String?
+  changedAt  DateTime @default(now())
+}
+
+model Reminder {
+  id          String   @id @default(cuid())
+  bondId      String?
+  bond        Bond?    @relation(fields: [bondId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  type        String   // expiration_warning, renewal_due, bid_deadline, compliance_check
+  title       String
+  message     String
+  dueDate     DateTime
+  status      String   @default("pending") // pending, sent, acknowledged, dismissed
+  priority    String   @default("medium") // low, medium, high, critical
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
