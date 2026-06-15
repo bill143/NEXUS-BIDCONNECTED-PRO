@@ -1,0 +1,913 @@
+// ============================================================
+// BIDCONNECT PRO — PRISMA SCHEMA
+// Database: PostgreSQL (Neon.Tech Serverless)
+// ============================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "fullTextIndex"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum OrgPlan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  PROJECT_MANAGER
+  ESTIMATOR
+  BID_COORDINATOR
+  VIEWER
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+enum ProjectType {
+  GENERAL_CONTRACTING
+  CM_AT_RISK
+  DESIGN_BUILD
+  OWNER_CONTROLLED
+  OTHER
+}
+
+enum ProjectVisibility {
+  PUBLIC
+  PRIVATE
+  INVITE_ONLY
+}
+
+enum BidPackageStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  AWARDED
+  CANCELLED
+}
+
+enum BidInvitationStatus {
+  INVITED
+  VIEWED
+  BIDDING
+  SUBMITTED
+  DECLINED
+  AWARDED
+  NOT_BIDDING
+}
+
+enum DocumentCategory {
+  PLANS
+  SPECIFICATIONS
+  ADDENDA
+  RFIS
+  SUBMITTALS
+  REPORTS
+  PHOTOS
+  CONTRACTS
+  OTHER
+}
+
+enum DocumentVisibility {
+  ALL_INVITED
+  GC_TEAM_ONLY
+  SPECIFIC_COMPANIES
+}
+
+enum NotificationType {
+  ITB_RECEIVED
+  ITB_REMINDER_48H
+  ITB_REMINDER_24H
+  ADDENDUM_UPLOADED
+  DOCUMENT_ADDED
+  BID_SUBMITTED
+  BID_REVISED
+  BID_DECLINED
+  BID_VIEWED
+  BID_AWARDED
+  PROJECT_CLOSED
+  PROJECT_CREATED
+  TEAM_MEMBER_ADDED
+  COMMENT_MENTION
+  PREQUALIFICATION_REQUESTED
+  PREQUALIFICATION_APPROVED
+  PREQUALIFICATION_REJECTED
+  DEADLINE_APPROACHING
+  SYSTEM
+}
+
+enum PrequalificationStatus {
+  NOT_REQUESTED
+  SENT
+  IN_PROGRESS
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum ActivityAction {
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_CLOSED
+  PROJECT_ARCHIVED
+  PROJECT_DUPLICATED
+  BID_PACKAGE_CREATED
+  BID_PACKAGE_UPDATED
+  BID_PACKAGE_CLOSED
+  ITB_SENT
+  ITB_RESENT
+  BID_VIEWED
+  BID_DECLINED
+  BID_SUBMITTED
+  BID_REVISED
+  BID_AWARDED
+  DOCUMENT_UPLOADED
+  DOCUMENT_VERSIONED
+  DOCUMENT_DELETED
+  ADDENDUM_PUBLISHED
+  TEAM_MEMBER_ADDED
+  TEAM_MEMBER_REMOVED
+  COMMENT_POSTED
+  COMMENT_DELETED
+  PROJECT_SETTINGS_CHANGED
+  COMPANY_ADDED
+  CONTACT_ADDED
+  PREQUALIFICATION_REQUESTED
+  PREQUALIFICATION_STATUS_CHANGED
+}
+
+enum BidFormFieldType {
+  CURRENCY
+  NUMBER
+  TEXT
+  TEXTAREA
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+  DATE
+  UNIT_PRICE
+  LUMP_SUM
+  ALLOWANCE
+  ALTERNATE
+  SECTION_HEADER
+  DIVIDER
+}
+
+// ─────────────────────────────────────────
+// MULTI-TENANCY
+// ─────────────────────────────────────────
+
+model Organization {
+  id                 String    @id @default(cuid())
+  name               String
+  slug               String    @unique // URL-safe org identifier
+  logoUrl            String?
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  state              String?
+  zip                String?
+  country            String    @default("US")
+  phone              String?
+  website            String?
+  plan               OrgPlan   @default(FREE)
+  planExpiresAt      DateTime?
+  defaultTimezone    String    @default("America/Chicago")
+  defaultCurrency    String    @default("USD")
+  notificationsEmail String? // reply-to address for outbound emails
+  settings           Json      @default("{}")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  offices             Office[]
+  users               User[]
+  projects            Project[]
+  companies           CompanyConnection[]
+  bidderListTemplates BidderListTemplate[]
+  bidFormTemplates    BidFormTemplate[]
+  activityLogs        ActivityLog[]
+
+  @@map("organizations")
+}
+
+model Office {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  addressLine1   String?
+  city           String?
+  state          String?
+  zip            String?
+  phone          String?
+  isDefault      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users        User[]
+  projects     Project[]
+
+  @@map("offices")
+}
+
+// ─────────────────────────────────────────
+// USERS & AUTH
+// ─────────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid()) // maps to Supabase auth.users.id
+  organizationId String
+  officeId       String?
+  email          String    @unique
+  firstName      String
+  lastName       String
+  title          String?
+  phone          String?
+  mobile         String?
+  avatarUrl      String?
+  role           UserRole  @default(ESTIMATOR)
+  isActive       Boolean   @default(true)
+  isInternal     Boolean   @default(true)
+  lastLoginAt    DateTime?
+  preferences    Json      @default("{}") // notification preferences, UI settings
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  office             Office?             @relation(fields: [officeId], references: [id])
+  ledProjects        Project[]           @relation("ProjectLead")
+  createdProjects    Project[]           @relation("ProjectCreator")
+  projectMemberships ProjectMembership[]
+  notifications      Notification[]
+  activityLogs       ActivityLog[]
+  comments           Comment[]
+  uploadedDocuments  Document[]
+  sentInvitations    BidInvitation[]     @relation("InvitedBy")
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// PROJECTS
+// ─────────────────────────────────────────
+
+model Project {
+  id                String            @id @default(cuid())
+  organizationId    String
+  officeId          String?
+  number            String? // e.g. "26004" — unique within org
+  name              String
+  status            ProjectStatus     @default(DRAFT)
+  projectType       ProjectType       @default(GENERAL_CONTRACTING)
+  estimatedValue    Decimal?          @db.Decimal(15, 2)
+  description       String?           @db.Text
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  state             String?
+  zip               String?
+  country           String            @default("US")
+  latitude          Float?
+  longitude         Float?
+  clientName        String?
+  bidsDueAt         DateTime? // when bids from subs are due
+  bidsDueTimezone   String            @default("America/Chicago")
+  dueToClientAt     DateTime? // when GC must submit to owner
+  startDate         DateTime?         @db.Date
+  endDate           DateTime?         @db.Date
+  leadUserId        String
+  visibility        ProjectVisibility @default(PRIVATE)
+  bidFormTemplateId String?
+  isMuted           Boolean           @default(false)
+  tags              String[]          @default([])
+  csiDivisions      String[]          @default([]) // e.g. ["03","07","09"]
+  createdBy         String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  deletedAt         DateTime? // soft delete
+
+  // Relations
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  office          Office?             @relation(fields: [officeId], references: [id])
+  lead            User                @relation("ProjectLead", fields: [leadUserId], references: [id])
+  creator         User                @relation("ProjectCreator", fields: [createdBy], references: [id])
+  bidFormTemplate BidFormTemplate?    @relation(fields: [bidFormTemplateId], references: [id])
+  members         ProjectMembership[]
+  bidPackages     BidPackage[]
+  documents       Document[]
+  comments        Comment[]
+  activityLogs    ActivityLog[]
+  notifications   Notification[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status])
+  @@index([organizationId, leadUserId])
+  @@index([bidsDueAt])
+  @@map("projects")
+}
+
+model ProjectMembership {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String   @default("member") // manager, estimator, coordinator, viewer
+  addedBy   String
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_memberships")
+}
+
+// ─────────────────────────────────────────
+// BID MANAGEMENT
+// ─────────────────────────────────────────
+
+model BidPackage {
+  id                  String           @id @default(cuid())
+  projectId           String
+  title               String
+  scopeOfWork         String?          @db.Text
+  csiDivisionCode     String? // e.g. "07"
+  csiDivisionName     String? // e.g. "Thermal & Moisture Protection"
+  budgetAmount        Decimal?         @db.Decimal(15, 2)
+  budgetVisibleToSubs Boolean          @default(false)
+  bidsDueAt           DateTime?
+  bidsDueTimezone     String           @default("America/Chicago")
+  status              BidPackageStatus @default(OPEN)
+  bidFormId           String?
+  sortOrder           Int              @default(0)
+  invitedCount        Int              @default(0) // denormalized counter
+  respondedCount      Int              @default(0) // denormalized counter
+  submittedCount      Int              @default(0) // denormalized counter
+  createdBy           String
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  // Relations
+  project          Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bidForm          BidForm?             @relation(fields: [bidFormId], references: [id])
+  invitations      BidInvitation[]
+  packageDocuments BidPackageDocument[]
+
+  @@index([projectId])
+  @@map("bid_packages")
+}
+
+model BidPackageDocument {
+  bidPackageId String
+  documentId   String
+  addedAt      DateTime @default(now())
+
+  bidPackage BidPackage @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  document   Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@id([bidPackageId, documentId])
+  @@map("bid_package_documents")
+}
+
+model BidInvitation {
+  id              String              @id @default(cuid())
+  bidPackageId    String
+  companyId       String
+  contactId       String? // specific person at company
+  invitedById     String
+  status          BidInvitationStatus @default(INVITED)
+  personalNote    String?             @db.Text // GC's private note to this sub
+  invitedAt       DateTime            @default(now())
+  emailedAt       DateTime?
+  viewedAt        DateTime?
+  intentToBidAt   DateTime?
+  declinedAt      DateTime?
+  declineReason   String?
+  submittedAt     DateTime?
+  awardedAt       DateTime?
+  awardNotes      String?             @db.Text
+  isNotifiedAddenda Boolean           @default(false)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  // Relations
+  bidPackage BidPackage    @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  company    Company       @relation(fields: [companyId], references: [id])
+  contact    Contact?      @relation(fields: [contactId], references: [id])
+  invitedBy  User          @relation("InvitedBy", fields: [invitedById], references: [id])
+  submission BidSubmission?
+
+  @@unique([bidPackageId, companyId])
+  @@index([bidPackageId, status])
+  @@map("bid_invitations")
+}
+
+model BidSubmission {
+  id                   String   @id @default(cuid())
+  bidInvitationId      String   @unique
+  totalBaseBid         Decimal? @db.Decimal(15, 2)
+  totalAlternates      Decimal? @db.Decimal(15, 2)
+  totalAllowances      Decimal? @db.Decimal(15, 2)
+  totalUnitPrices      Decimal? @db.Decimal(15, 2)
+  grandTotal           Decimal? @db.Decimal(15, 2)
+  notes                String?  @db.Text
+  isRevised            Boolean  @default(false)
+  revisionNumber       Int      @default(1)
+  previousSubmissionId String?
+  submittedAt          DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Relations
+  bidInvitation      BidInvitation       @relation(fields: [bidInvitationId], references: [id], onDelete: Cascade)
+  previousSubmission BidSubmission?      @relation("SubmissionRevisions", fields: [previousSubmissionId], references: [id])
+  revisions          BidSubmission[]     @relation("SubmissionRevisions")
+  lineItemResponses  BidLineItemResponse[]
+  attachments        SubmissionAttachment[]
+
+  @@map("bid_submissions")
+}
+
+model BidLineItemResponse {
+  id              String   @id @default(cuid())
+  bidSubmissionId String
+  bidFormFieldId  String
+  amountValue     Decimal? @db.Decimal(15, 2)
+  textValue       String?  @db.Text
+  booleanValue    Boolean?
+  unitPrice       Decimal? @db.Decimal(15, 4)
+  quantity        Decimal? @db.Decimal(15, 4)
+  extendedAmount  Decimal? @db.Decimal(15, 2)
+
+  bidSubmission BidSubmission @relation(fields: [bidSubmissionId], references: [id], onDelete: Cascade)
+  bidFormField  BidFormField  @relation(fields: [bidFormFieldId], references: [id])
+
+  @@unique([bidSubmissionId, bidFormFieldId])
+  @@map("bid_line_item_responses")
+}
+
+model SubmissionAttachment {
+  id              String   @id @default(cuid())
+  bidSubmissionId String
+  name            String
+  storagePath     String
+  storageUrl      String
+  fileSizeBytes   BigInt
+  fileType        String
+  uploadedAt      DateTime @default(now())
+
+  bidSubmission BidSubmission @relation(fields: [bidSubmissionId], references: [id], onDelete: Cascade)
+
+  @@map("submission_attachments")
+}
+
+// ─────────────────────────────────────────
+// BID FORMS
+// ─────────────────────────────────────────
+
+model BidFormTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  isDefault      Boolean  @default(false)
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bidForms     BidForm[]
+  projects     Project[]
+
+  @@map("bid_form_templates")
+}
+
+model BidForm {
+  id                String   @id @default(cuid())
+  bidFormTemplateId String?
+  name              String
+  description       String?
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  template    BidFormTemplate? @relation(fields: [bidFormTemplateId], references: [id])
+  bidPackages BidPackage[]
+  sections    BidFormSection[]
+
+  @@map("bid_forms")
+}
+
+model BidFormSection {
+  id          String @id @default(cuid())
+  bidFormId   String
+  title       String
+  description String?
+  sortOrder   Int    @default(0)
+
+  bidForm BidForm        @relation(fields: [bidFormId], references: [id], onDelete: Cascade)
+  fields  BidFormField[]
+
+  @@map("bid_form_sections")
+}
+
+model BidFormField {
+  id           String           @id @default(cuid())
+  sectionId    String
+  label        String
+  description  String?
+  fieldType    BidFormFieldType @default(CURRENCY)
+  isRequired   Boolean          @default(false)
+  sortOrder    Int              @default(0)
+  unit         String? // "SF", "LF", "EA", "CY", etc.
+  quantity     Decimal?         @db.Decimal(15, 4)
+  options      Json? // for SELECT/MULTI_SELECT types: [{value, label}]
+  placeholder  String?
+  defaultValue String?
+
+  section   BidFormSection      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  responses BidLineItemResponse[]
+
+  @@map("bid_form_fields")
+}
+
+// ─────────────────────────────────────────
+// COMPANIES & CONTACTS (SUBCONTRACTOR NETWORK)
+// ─────────────────────────────────────────
+
+model Company {
+  id                        String                 @id @default(cuid())
+  name                      String
+  addressLine1              String?
+  addressLine2              String?
+  city                      String?
+  state                     String?
+  zip                       String?
+  country                   String                 @default("US")
+  phone                     String?
+  email                     String?
+  website                   String?
+  licenseNumber             String?
+  licenseState              String?
+  insuranceExpiryDate       DateTime?              @db.Date
+  insuranceCoverageAmount   Decimal?               @db.Decimal(15, 2)
+  prequalificationStatus    PrequalificationStatus @default(NOT_REQUESTED)
+  prequalificationExpiresAt DateTime?              @db.Date
+  bcNetworkVerified         Boolean                @default(false)
+  averageResponseRate       Float? // 0.0 to 1.0
+  totalInvitations          Int                    @default(0) // denorm
+  totalSubmissions          Int                    @default(0) // denorm
+  isActive                  Boolean                @default(true)
+  notes                     String?                @db.Text
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+
+  // Relations
+  trades                  CompanyTrade[]
+  contacts                Contact[]
+  bidInvitations          BidInvitation[]
+  connections             CompanyConnection[]
+  prequalificationRecords PrequalificationRecord[]
+
+  @@index([name])
+  @@index([state, city])
+  @@map("companies")
+}
+
+model CompanyTrade {
+  id              String  @id @default(cuid())
+  companyId       String
+  csiDivisionCode String // "03", "07", "09", etc.
+  csiDivisionName String
+  isPrimary       Boolean @default(false)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, csiDivisionCode])
+  @@map("company_trades")
+}
+
+model CompanyConnection {
+  // Org-specific CRM data overlaid on global company record
+  id             String   @id @default(cuid())
+  organizationId String
+  companyId      String
+  customNotes    String?  @db.Text
+  customTags     String[] @default([])
+  isFavorite     Boolean  @default(false)
+  internalRating Int? // 1-5 star internal rating
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, companyId])
+  @@map("company_connections")
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  companyId String?
+  firstName String
+  lastName  String
+  email     String
+  phone     String?
+  mobile    String?
+  title     String?
+  isPrimary Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company        Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  bidInvitations BidInvitation[]
+
+  @@index([email])
+  @@index([companyId])
+  @@map("contacts")
+}
+
+model PrequalificationRecord {
+  id                String                 @id @default(cuid())
+  companyId         String
+  requestedByOrgId  String
+  status            PrequalificationStatus @default(SENT)
+  questionnaireData Json                   @default("{}")
+  sentAt            DateTime               @default(now())
+  submittedAt       DateTime?
+  reviewedAt        DateTime?
+  reviewedById      String?
+  expiresAt         DateTime?              @db.Date
+  approvalNotes     String?                @db.Text
+  rejectionReason   String?                @db.Text
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("prequalification_records")
+}
+
+// ─────────────────────────────────────────
+// DOCUMENTS
+// ─────────────────────────────────────────
+
+model Document {
+  id                   String             @id @default(cuid())
+  projectId            String
+  name                 String
+  originalFilename     String
+  category             DocumentCategory   @default(OTHER)
+  fileType             String // MIME type, e.g. 'application/pdf'
+  fileSizeBytes        BigInt
+  currentVersionNumber Int                @default(1)
+  storagePath          String // Supabase Storage path
+  storageUrl           String // public or signed URL
+  uploadedBy           String
+  uploadedAt           DateTime           @default(now())
+  visibility           DocumentVisibility @default(ALL_INVITED)
+  isAddendum           Boolean            @default(false)
+  addendumNumber       Int?
+  notifySubsOnUpload   Boolean            @default(false)
+  deletedAt            DateTime? // soft delete
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  // Relations
+  project              Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploader             User                       @relation(fields: [uploadedBy], references: [id])
+  versions             DocumentVersion[]
+  visibilityCompanies  DocumentVisibility_Company[]
+  bidPackageDocuments  BidPackageDocument[]
+
+  @@index([projectId, category])
+  @@index([projectId, deletedAt])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id            String   @id @default(cuid())
+  documentId    String
+  versionNumber Int
+  storagePath   String
+  storageUrl    String
+  fileSizeBytes BigInt
+  fileType      String
+  uploadedBy    String
+  changeNotes   String?
+  uploadedAt    DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNumber])
+  @@map("document_versions")
+}
+
+model DocumentVisibility_Company {
+  documentId String
+  companyId  String
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, companyId])
+  @@map("document_visibility_companies")
+}
+
+// ─────────────────────────────────────────
+// BIDDER LIST TEMPLATES
+// ─────────────────────────────────────────
+
+model BidderListTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries      BidderListTemplateEntry[]
+
+  @@map("bidder_list_templates")
+}
+
+model BidderListTemplateEntry {
+  id                   String   @id @default(cuid())
+  bidderListTemplateId String
+  companyId            String
+  contactId            String?
+  csiDivisionCode      String?
+  csiDivisionName      String?
+  notes                String?
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
+
+  template BidderListTemplate @relation(fields: [bidderListTemplateId], references: [id], onDelete: Cascade)
+
+  @@map("bidder_list_template_entries")
+}
+
+// ─────────────────────────────────────────
+// COMMENTS & MESSAGING
+// ─────────────────────────────────────────
+
+model Comment {
+  id               String    @id @default(cuid())
+  projectId        String
+  authorId         String
+  body             String    @db.Text
+  mentionedUserIds String[]  @default([])
+  parentId         String? // for threaded replies
+  isEdited         Boolean   @default(false)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  project Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author  User      @relation(fields: [authorId], references: [id])
+  parent  Comment?  @relation("CommentThread", fields: [parentId], references: [id])
+  replies Comment[] @relation("CommentThread")
+
+  @@index([projectId])
+  @@map("comments")
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  projectId   String?
+  type        NotificationType
+  title       String
+  message     String           @db.Text
+  isRead      Boolean          @default(false)
+  readAt      DateTime?
+  entityType  String? // "project" | "bid_package" | "document" | etc.
+  entityId    String?
+  deepLinkUrl String? // internal Next.js route
+  metadata    Json             @default("{}")
+  createdAt   DateTime         @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────
+// ACTIVITY / AUDIT LOG
+// ─────────────────────────────────────────
+
+model ActivityLog {
+  id             String         @id @default(cuid())
+  organizationId String
+  projectId      String?
+  entityType     String // "project" | "bid_package" | "bid_invitation" | etc.
+  entityId       String
+  action         ActivityAction
+  actorId        String
+  actorName      String // denormalized for permanent history
+  actorEmail     String // denormalized
+  metadata       Json           @default("{}") // e.g. {old_status:"DRAFT", new_status:"ACTIVE"}
+  ipAddress      String?
+  userAgent      String?
+  timestamp      DateTime       @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  actor        User         @relation(fields: [actorId], references: [id])
+
+  @@index([organizationId, timestamp(sort: Desc)])
+  @@index([projectId, timestamp(sort: Desc)])
+  @@index([entityType, entityId])
+  @@map("activity_logs")
+}
+
+// ─────────────────────────────────────────
+// CSI DIVISIONS REFERENCE TABLE
+// (seeded with full 50-division MasterFormat)
+// ─────────────────────────────────────────
+
+model CsiDivision {
+  code        String  @id // "00", "01", ... "49"
+  name        String // "Procurement and Contracting Requirements"
+  description String?
+
+  @@map("csi_divisions")
+}
+
+// ─────────────────────────────────────────
+// EMAIL LOG (outbound audit trail)
+// ─────────────────────────────────────────
+
+model EmailLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  recipientEmail  String
+  recipientName   String?
+  subject         String
+  templateName    String // e.g. "itb-invitation", "addendum-notification"
+  entityType      String?
+  entityId        String?
+  resendMessageId String? // Resend API message ID
+  status          String   @default("sent") // sent | delivered | bounced | failed
+  sentAt          DateTime @default(now())
+  metadata        Json     @default("{}")
+
+  @@index([organizationId, sentAt(sort: Desc)])
+  @@index([recipientEmail])
+  @@map("email_logs")
+}
+
+// ─────────────────────────────────────────
+// ANALYTICS SNAPSHOTS
+// (pre-computed for dashboard performance)
+// ─────────────────────────────────────────
+
+model ProjectAnalyticsSnapshot {
+  id               String   @id @default(cuid())
+  projectId        String   @unique
+  organizationId   String
+  totalPackages    Int      @default(0)
+  totalInvited     Int      @default(0)
+  totalViewed      Int      @default(0)
+  totalBidding     Int      @default(0)
+  totalSubmitted   Int      @default(0)
+  totalDeclined    Int      @default(0)
+  totalAwarded     Int      @default(0)
+  responseRate     Float    @default(0) // submitted / invited
+  coverageRate     Float    @default(0) // packages with >= 1 submission / total packages
+  avgBidAmount     Decimal? @db.Decimal(15, 2)
+  lowestBid        Decimal? @db.Decimal(15, 2)
+  highestBid       Decimal? @db.Decimal(15, 2)
+  lastCalculatedAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@map("project_analytics_snapshots")
+}

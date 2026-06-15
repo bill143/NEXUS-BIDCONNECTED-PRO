@@ -1,0 +1,26 @@
+{
+  "name": "@bidconnect/email-templates",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@react-email/components": "^0.0.14",
+    "@react-email/render": "^0.0.12",
+    "react-email": "^2.0.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "devDependencies": {
+    "@bidconnect/typescript-config": "workspace:*",
+    "@bidconnect/eslint-config": "workspace:*",
+    "@types/react": "^18.2.48",
+    "typescript": "^5.3.3"
+  }
+}

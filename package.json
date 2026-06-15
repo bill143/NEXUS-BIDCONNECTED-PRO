@@ -1,0 +1,29 @@
+{
+  "name": "bidconnect-pro",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@8.15.6",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "turbo run db:generate",
+    "db:migrate": "cd packages/db && npx prisma migrate dev",
+    "db:seed": "cd packages/db && npx prisma db seed",
+    "db:studio": "cd packages/db && npx prisma studio",
+    "email:dev": "cd apps/email && npx email dev",
+    "format": "prettier --write .",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "prettier": "^3.2.0",
+    "turbo": "^1.12.0",
+    "typescript": "^5.3.3"
+  }
+}

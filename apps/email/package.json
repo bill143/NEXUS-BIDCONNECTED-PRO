@@ -1,0 +1,17 @@
+{
+  "name": "@bidconnect/email-dev",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "email dev --dir ../../packages/email-templates/src",
+    "build": "echo 'Email dev server - no build needed'",
+    "clean": "rm -rf node_modules"
+  },
+  "dependencies": {
+    "react-email": "^2.0.0",
+    "@bidconnect/email-templates": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
